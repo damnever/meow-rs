@@ -27,6 +27,11 @@ the canonical, in-repo source a release is cut from.
 
 ### Fixed
 
+- **LuCI 23.05 notifications** — configuration validation/saves, service
+  actions, and client updates no longer report failure after succeeding when
+  `ui.addTimeLimitedNotification()` is unavailable. Newer LuCI versions keep
+  using the native API; older versions use timed `addNotification()` banners.
+
 - **Proxy-provider startup no longer waits on the feed**: an HTTP
   provider with a parseable on-disk cache now starts from it without a
   request and is refetched in the background right after startup (mihomo
