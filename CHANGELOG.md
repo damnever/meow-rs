@@ -16,6 +16,17 @@ the canonical, in-repo source a release is cut from.
   `x86_64-unknown-linux-musl` binary, so `luci-app-meow` can be installed on
   x86 OpenWrt.
 
+### Fixed
+
+- **WebSocket tunnel stability**: large and repeated writes now respect
+  bounded sink backpressure, and Ping replies flush correctly when a
+  read-only tunnel recovers from write backpressure.
+- **Mux connection cleanup**: successful TCP and UDP stream opens no longer
+  retain physical connections after idle eviction or pool shutdown.
+- **muxcool UDP compatibility**: reject outgoing datagrams larger than
+  Xray's 8 KiB packet limit before transmission, preserving other streams
+  on the shared mux session.
+
 ## [0.22.0] - 2026-10-03
 
 ### Added

@@ -3694,7 +3694,9 @@ async fn post_dns_query_returns_known_host() {
 /// POST /dns/query for an unknown name returns `answer: null`.
 #[tokio::test]
 async fn post_dns_query_unknown_name_returns_null_answer() {
-    let state = test_state_default();
+    // Keep this no-answer case upstream-free: intercepted DNS can synthesize
+    // an address even for .invalid.
+    let state = test_state_with_hosts_entry();
     let app = create_router(state);
     let resp = app
         .oneshot(

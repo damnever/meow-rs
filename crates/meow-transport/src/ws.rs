@@ -503,17 +503,6 @@ impl AsyncRead for WsStream {
                             state.read_pos = 0;
                             // loop to drain
                         }
-                        Some(Ok(Message::Ping(payload))) => {
-                            // Best-effort pong: only attempt when the sink is
-                            // immediately ready.  Per the Sink contract,
-                            // start_send must not be called unless poll_ready
-                            // returned Ready(Ok(())).  Dropping a pong when
-                            // the queue is briefly full is acceptable for an
-                            // optional keepalive; blocking the read path is not.
-                            if let Poll::Ready(Ok(())) = Pin::new(&mut state.ws).poll_ready(cx) {
-                                let _ = Pin::new(&mut state.ws).start_send(Message::Pong(payload));
-                            }
-                        }
                         Some(Ok(Message::Close(_))) => {
                             return Poll::Ready(Ok(())); // EOF
                         }
@@ -523,9 +512,12 @@ impl AsyncRead for WsStream {
                                 "ws: unexpected text frame",
                             )));
                         }
-                        Some(Ok(Message::Pong(_) | Message::Frame(_))) => {
-                            // Pong replies and raw frames are noise on the read
-                            // path; ignore and poll for the next frame.
+                        Some(Ok(Message::Ping(_) | Message::Pong(_) | Message::Frame(_))) => {
+                            // Tungstenite queues the matching pong and flushes
+                            // it on subsequent reads, including after write
+                            // backpressure. A manual pong replaces that reply
+                            // and can leave it buffered on a read-only tunnel.
+                            // Control frames carry no byte-stream payload.
                         }
                     }
                 }
@@ -568,6 +560,14 @@ impl AsyncWrite for WsStream {
                     }
                 }
                 WsInner::Connected(state) => {
+                    // Drain the previously accepted frame before queuing
+                    // another. Sink readiness alone can accept small frames
+                    // while the socket is blocked, filling the bounded buffer.
+                    match Pin::new(&mut state.ws).poll_flush(cx) {
+                        Poll::Ready(Ok(())) => {}
+                        Poll::Ready(Err(e)) => return Poll::Ready(Err(tung_to_io(e))),
+                        Poll::Pending => return Poll::Pending,
+                    }
                     match Pin::new(&mut state.ws).poll_ready(cx) {
                         Poll::Ready(Ok(())) => {}
                         Poll::Ready(Err(e)) => {
@@ -581,8 +581,12 @@ impl AsyncWrite for WsStream {
                     // it in place (`try_into_mut`) instead of re-copying the
                     // frame — one allocation per chunk, down from the 0.24
                     // `Vec<u8>` copy + internal re-copy.
+                    // Mux writers can coalesce many frames into a caller slice
+                    // larger than the 64 KiB sink limit. AsyncWrite permits
+                    // partial progress; keep each masked frame well below it.
+                    let accepted = buf.len().min(16 * 1024);
                     if let Err(e) = Pin::new(&mut state.ws)
-                        .start_send(Message::Binary(Bytes::copy_from_slice(buf)))
+                        .start_send(Message::Binary(Bytes::copy_from_slice(&buf[..accepted])))
                     {
                         return Poll::Ready(Err(tung_to_io(e)));
                     }
@@ -595,7 +599,7 @@ impl AsyncWrite for WsStream {
                         Poll::Ready(Ok(())) | Poll::Pending => {}
                         Poll::Ready(Err(e)) => return Poll::Ready(Err(tung_to_io(e))),
                     }
-                    return Poll::Ready(Ok(buf.len()));
+                    return Poll::Ready(Ok(accepted));
                 }
             }
         }
