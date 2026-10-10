@@ -72,9 +72,10 @@ const KEEPALIVE_SESSION_ID: u16 = 0;
 /// (common/mux/writer.go::WriteMultiBuffer), keeping frame latency bounded.
 const MAX_PAYLOAD: usize = 8 * 1024;
 
-/// Xray's PacketReader rejects UDP payloads larger than common/buf.Size,
-/// aborting the entire mux session. Reject them before queuing a frame.
-const MAX_UDP_PAYLOAD: usize = 8 * 1024;
+/// Xray's PacketReader (common/mux/reader.go) rejects UDP payloads larger
+/// than common/buf.Size — the same 8 KiB `MAX_PAYLOAD` derives from — and
+/// aborts the entire mux session. Reject them before queuing a frame.
+const MAX_UDP_PAYLOAD: usize = MAX_PAYLOAD;
 
 /// Per-stream inbound queue depth (frames, not bytes).  A stalled consumer
 /// applies session-wide flow control: the driver parks the overflowing

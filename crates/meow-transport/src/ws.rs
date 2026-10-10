@@ -45,14 +45,31 @@ fn tung_to_io(e: tokio_tungstenite::tungstenite::Error) -> io::Error {
     }
 }
 
+/// Hard ceiling on tungstenite's per-connection write buffer. `start_send`
+/// fails with `WriteBufferFull` — fatal for the stream — once a frame would
+/// push the buffer past it, so every frame `poll_write` queues must fit.
+const WS_MAX_WRITE_BUFFER: usize = 64 * 1024;
+
+/// Largest payload `poll_write` accepts per call. Mux writers coalesce many
+/// frames into one caller slice that can exceed [`WS_MAX_WRITE_BUFFER`];
+/// `AsyncWrite` permits partial progress, so each masked frame stays well
+/// below the ceiling with room for its header and a queued pong.
+const WS_WRITE_CHUNK: usize = 16 * 1024;
+
+const _: () = assert!(
+    WS_WRITE_CHUNK * 2 <= WS_MAX_WRITE_BUFFER,
+    "a write chunk plus control frames must fit tungstenite's write buffer"
+);
+
 /// Footprint-bounded WebSocket config (tungstenite defaults to a 128 KiB
 /// write buffer per connection and 64 MiB max message, which inflates RSS at
-/// high concurrency). 4 KiB matches `RELAY_BUF_SIZE` and is plenty for the
-/// streaming-relay use case where each write is a single relay-buf chunk.
+/// high concurrency). 4 KiB matches `RELAY_BUF_SIZE`: the common relay write
+/// is a single relay-buf chunk, and larger caller slices are split into
+/// [`WS_WRITE_CHUNK`]-sized frames by `poll_write`.
 fn ws_config() -> WebSocketConfig {
     WebSocketConfig::default()
         .write_buffer_size(4 * 1024)
-        .max_write_buffer_size(64 * 1024)
+        .max_write_buffer_size(WS_MAX_WRITE_BUFFER)
         .max_message_size(Some(4 * 1024 * 1024))
         .max_frame_size(Some(1024 * 1024))
         .accept_unmasked_frames(false)
@@ -581,10 +598,9 @@ impl AsyncWrite for WsStream {
                     // it in place (`try_into_mut`) instead of re-copying the
                     // frame — one allocation per chunk, down from the 0.24
                     // `Vec<u8>` copy + internal re-copy.
-                    // Mux writers can coalesce many frames into a caller slice
-                    // larger than the 64 KiB sink limit. AsyncWrite permits
-                    // partial progress; keep each masked frame well below it.
-                    let accepted = buf.len().min(16 * 1024);
+                    // Partial write: see `WS_WRITE_CHUNK` for why a caller
+                    // slice is capped below tungstenite's write-buffer ceiling.
+                    let accepted = buf.len().min(WS_WRITE_CHUNK);
                     if let Err(e) = Pin::new(&mut state.ws)
                         .start_send(Message::Binary(Bytes::copy_from_slice(&buf[..accepted])))
                     {
