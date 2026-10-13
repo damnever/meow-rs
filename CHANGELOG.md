@@ -27,10 +27,12 @@ the canonical, in-repo source a release is cut from.
 
 ### Fixed
 
-- **LuCI 23.05 notifications** — configuration validation/saves, service
-  actions, and client updates no longer report failure after succeeding when
-  `ui.addTimeLimitedNotification()` is unavailable. Newer LuCI versions keep
-  using the native API; older versions use timed `addNotification()` banners.
+- **LuCI notifications on OpenWrt 23.05 and 24.10.0**: configuration
+  validation/saves, service actions, and client updates no longer report
+  failure after succeeding when `ui.addTimeLimitedNotification()` is
+  unavailable (it first shipped in 24.10.1). Newer LuCI versions keep using
+  the native API; older versions use timed `addNotification()` banners that
+  keep their `info` styling.
 
 - **Proxy-provider startup no longer waits on the feed**: an HTTP
   provider with a parseable on-disk cache now starts from it without a

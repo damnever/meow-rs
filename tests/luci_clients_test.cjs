@@ -37,7 +37,7 @@ function load(config, dhcpHosts = []) {
       createHandlerFn: () => () => {},
       addNotification: (...args) => {
         notifications.push(args);
-        return { remove() {} };
+        return { classList: { add() {} }, remove() {} };
       }
     }
   };

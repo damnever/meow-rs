@@ -38,9 +38,12 @@ test('timed notifications use the native LuCI API when available', () => {
 
 test('timed notifications expire independently with the LuCI 23.05 API', () => {
   const visible = new Set(), notifications = [], timers = [];
-  const ui = { addNotification: (...args) => {
-    notifications.push(args);
-    const node = { remove: () => visible.delete(node) };
+  // 23.05: addNotification(title, children, ...classes).
+  const ui = { addNotification: (title, children, ...classes) => {
+    notifications.push([title, children, ...classes]);
+    const classList = new Set(classes);
+    const node = { classes: classList, classList: { add: c => classList.add(c) },
+      remove: () => visible.delete(node) };
     visible.add(node);
     return node;
   } };
@@ -51,6 +54,8 @@ test('timed notifications expire independently with the LuCI 23.05 API', () => {
   const first = helper.addTimeLimitedNotification(null, firstContent, 3000, 'info');
   const second = helper.addTimeLimitedNotification('Result', secondContent, 5000, 'warning');
   assert.deepEqual(notifications, [[null, firstContent, 'info'], ['Result', secondContent, 'warning']]);
+  assert.deepEqual([...first.classes], ['info']);
+  assert.deepEqual([...second.classes], ['warning']);
   assert.deepEqual(timers.map(t => t.timeout), [3000, 5000]);
   assert.deepEqual([...visible], [first, second]);
   timers[0].callback();
@@ -59,13 +64,31 @@ test('timed notifications expire independently with the LuCI 23.05 API', () => {
   assert.equal(visible.size, 0);
 });
 
+test('timed notifications keep their class with the OpenWrt 24.10.0 API', () => {
+  // 24.10.0 shipped addNotification(title, children, timeout, ...classes) and
+  // no addTimeLimitedNotification(), so the type lands in the timeout slot.
+  const calls = [], timers = [];
+  const ui = { addNotification: (title, children, timeout, ...classes) => {
+    calls.push({ timeout, classes });
+    const classList = new Set(classes);
+    return { classes: classList, classList: { add: c => classList.add(c) }, remove() {} };
+  } };
+  const helper = load('tools/meow.js', {
+    baseclass: extend, rpc: { declare: () => () => {} }, ui
+  }, { setTimeout: (callback, timeout) => { timers.push({ callback, timeout }); } });
+  const notification = helper.addTimeLimitedNotification(null, {}, 3000, 'info');
+  assert.deepEqual(calls, [{ timeout: 'info', classes: [] }]);
+  assert.deepEqual([...notification.classes], ['info']);
+  assert.deepEqual(timers.map(t => t.timeout), [3000]);
+});
+
 test('manually dismissed timed notifications can expire safely', () => {
   const visible = new Set();
   let expire;
   const helper = load('tools/meow.js', {
     baseclass: extend, rpc: { declare: () => () => {} },
     ui: { addNotification: () => {
-      const node = { remove: () => visible.delete(node) };
+      const node = { classList: { add() {} }, remove: () => visible.delete(node) };
       visible.add(node);
       return node;
     } }
@@ -87,7 +110,7 @@ for (const action of ['start', 'stop']) {
       fs: { exec: async (...args) => { commands.push(args); return { code: 0 }; } },
       ui: { addNotification: (...args) => {
         notifications.push(args);
-        return { remove() {} };
+        return { classList: { add() {} }, remove() {} };
       } }
     };
     const globals = { setTimeout, L: { resolveDefault: (promise, fallback) => promise.catch(() => fallback) } };
@@ -117,7 +140,7 @@ for (const result of [{ code: 1, stderr: 'init failed' }, { code: 0 }]) {
       fs: { exec: async () => result },
       ui: { addNotification: (...args) => {
         notifications.push(args);
-        return { remove() {} };
+        return { classList: { add() {} }, remove() {} };
       } }
     };
     const globals = { setTimeout, L: { resolveDefault: (promise, fallback) => promise.catch(() => fallback) } };

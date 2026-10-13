@@ -34,7 +34,7 @@ function setup(options = {}) {
       // LuCI 23.05 has addNotification(), but no timed notification API.
       addNotification: (...args) => {
         notifications.push(args);
-        return { remove() {} };
+        return { classList: { add() {} }, remove() {} };
       },
       createHandlerFn: (ctx, fn, ...args) => (...rest) => ctx[fn](...args, ...rest)
     },
